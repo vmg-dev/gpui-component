@@ -76,6 +76,7 @@ impl Gallery {
                     StoryContainer::panel::<TagStory>(window, cx),
                     StoryContainer::panel::<TextareaStory>(window, cx),
                     StoryContainer::panel::<TooltipStory>(window, cx),
+                    StoryContainer::panel::<TreeStory>(window, cx),
                 ],
             ),
         ];

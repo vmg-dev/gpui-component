@@ -37,6 +37,7 @@ mod textarea_story;
 mod title_bar;
 mod toggle_story;
 mod tooltip_story;
+mod tree_story;
 mod webview_story;
 mod welcome_story;
 
@@ -88,6 +89,7 @@ pub use textarea_story::TextareaStory;
 pub use title_bar::AppTitleBar;
 pub use toggle_story::ToggleStory;
 pub use tooltip_story::TooltipStory;
+pub use tree_story::TreeStory;
 pub use webview_story::WebViewStory;
 pub use welcome_story::WelcomeStory;
 
