@@ -54,6 +54,7 @@ pub mod tag;
 pub mod text;
 pub mod theme;
 pub mod tooltip;
+pub mod tree;
 #[cfg(feature = "webview")]
 pub mod webview;
 
