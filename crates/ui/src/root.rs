@@ -180,62 +180,161 @@ impl ContextModal for Window {
     }
 }
 
-// impl<V> ContextModal for Context<'_, V> {
-//     fn open_drawer<F>(&mut self, cx: &mut App, build: F)
-//     where
-//         F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
-//     {
-//         self.deref_mut().open_drawer(cx, build)
-//     }
+impl ContextModal for App {
+    fn open_drawer<F>(&mut self, cx: &mut App, build: F)
+    where
+        F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
+    {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
 
-//     fn open_drawer_at<F>(&mut self, cx: &mut App, placement: Placement, build: F)
-//     where
-//         F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
-//     {
-//         self.deref_mut().open_drawer_at(cx, placement, build)
-//     }
+        _ = window.update(cx, |_, window, cx| {
+            window.open_drawer(cx, build);
+        });
+    }
 
-//     fn has_active_modal(&self, cx: &mut App) -> bool {
-//         self.deref().has_active_modal(cx)
-//     }
+    fn open_drawer_at<F>(&mut self, placement: Placement, cx: &mut App, build: F)
+    where
+        F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
+    {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
 
-//     fn close_drawer(&mut self, cx: &mut App) {
-//         self.deref_mut().close_drawer(cx)
-//     }
+        _ = window.update(cx, |_, window, cx| {
+            window.open_drawer_at(placement, cx, build);
+        });
+    }
 
-//     fn open_modal<F>(&mut self, cx: &mut App, build: F)
-//     where
-//         F: Fn(Modal, &mut Window, &mut App) -> Modal + 'static,
-//     {
-//         self.deref_mut().open_modal(cx, build)
-//     }
+    fn has_active_drawer(&mut self, cx: &mut App) -> bool {
+        let mut active = false;
+        let Some(window) = cx.active_window() else {
+            return active;
+        };
 
-//     fn has_active_drawer(&self, cx: &mut App) -> bool {
-//         self.deref().has_active_drawer(cx)
-//     }
+        _ = window.update(cx, |_, window, cx| {
+            active = window.has_active_drawer(cx);
+        });
 
-//     /// Close the last active modal.
-//     fn close_modal(&mut self, cx: &mut App) {
-//         self.deref_mut().close_modal(cx)
-//     }
+        active
+    }
 
-//     /// Close all modals.
-//     fn close_all_modals(&mut self, cx: &mut App) {
-//         self.deref_mut().close_all_modals(cx)
-//     }
+    fn close_drawer(&mut self, cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
 
-//     fn push_notification(&mut self, cx: &mut App, note: impl Into<Notification>) {
-//         self.deref_mut().push_notification(cx, note)
-//     }
+        _ = window.update(cx, |_, window, cx| {
+            window.close_drawer(cx);
+        });
+    }
 
-//     fn clear_notifications(&mut self, cx: &mut App) {
-//         self.deref_mut().clear_notifications(cx)
-//     }
+    fn open_modal<F>(&mut self, cx: &mut App, build: F)
+    where
+        F: Fn(Modal, &mut Window, &mut App) -> Modal + 'static,
+    {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
 
-//     fn notifications(&self, cx: &mut App) -> Rc<Vec<Entity<Notification>>> {
-//         self.deref().notifications(cx)
-//     }
-// }
+        _ = window.update(cx, |_, window, cx| {
+            window.open_modal(cx, build);
+        });
+    }
+
+    fn has_active_modal(&mut self, cx: &mut App) -> bool {
+        let mut active = false;
+        let Some(window) = cx.active_window() else {
+            return active;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            active = window.has_active_modal(cx);
+        });
+
+        active
+    }
+
+    fn close_modal(&mut self, cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            window.close_modal(cx);
+        });
+    }
+
+    fn close_all_modals(&mut self, cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            window.close_all_modals(cx);
+        });
+    }
+
+    fn push_notification(&mut self, note: impl Into<Notification>, cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            window.push_notification(note, cx);
+        });
+    }
+
+    fn clear_notifications(&mut self, cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            window.clear_notifications(cx);
+        });
+    }
+
+    fn notifications(&mut self, cx: &mut App) -> Rc<Vec<Entity<Notification>>> {
+        let mut results = Rc::new(vec![]);
+        let Some(window) = cx.active_window() else {
+            return results;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            results = window.notifications(cx);
+        });
+
+        results
+    }
+
+    fn focused_input(&mut self, cx: &mut App) -> Option<Entity<TextInput>> {
+        let mut result = None;
+        let Some(window) = cx.active_window() else {
+            return result;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            result = window.focused_input(cx);
+        });
+
+        result
+    }
+
+    fn has_focused_input(&mut self, cx: &mut App) -> bool {
+        let mut result = false;
+        let Some(window) = cx.active_window() else {
+            return result;
+        };
+
+        _ = window.update(cx, |_, window, cx| {
+            result = window.has_focused_input(cx);
+        });
+
+        result
+    }
+}
 
 /// Root is a view for the App window for as the top level view (Must be the first view in the window).
 ///
@@ -278,11 +377,29 @@ impl Root {
         }
     }
 
+    /// Update Root the get window, cx.
+    ///
+    /// The `window` will try to get active_window,
+    /// to make sure notifications, modals will display on the active window.
     pub fn update<F>(window: &mut Window, cx: &mut App, f: F)
     where
         F: FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     {
-        if let Some(Some(root)) = window.root::<Root>() {
+        if let Some(window) = cx
+            .active_window()
+            .map(|view| view.downcast::<Root>())
+            .flatten()
+        {
+            window
+                .update(cx, |root, window, cx| {
+                    f(root, window, cx);
+                })
+                .unwrap();
+        } else {
+            let Some(root) = window.root::<Root>().flatten() else {
+                return;
+            };
+
             root.update(cx, |root, cx| f(root, window, cx));
         }
     }
