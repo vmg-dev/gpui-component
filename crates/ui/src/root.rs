@@ -12,7 +12,7 @@ use gpui::{
 };
 use std::rc::Rc;
 
-/// Extension trait for [`WindowContext`] and [`ViewContext`] to add drawer functionality.
+/// Extension trait for [`gpui::Window`] to add modal functionality.
 pub trait ContextModal: Sized {
     /// Opens a Drawer at right placement.
     fn open_drawer<F>(&mut self, cx: &mut App, build: F)
@@ -180,155 +180,203 @@ impl ContextModal for Window {
     }
 }
 
-impl ContextModal for App {
-    fn open_drawer<F>(&mut self, cx: &mut App, build: F)
+/// Extension trait for [`gpui::App`] to add modal functionality.
+pub trait AppContextModal: Sized {
+    /// Opens a Drawer at right placement.
+    fn open_drawer<F>(&mut self, build: F)
+    where
+        F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static;
+
+    /// Opens a Drawer at the given placement.
+    fn open_drawer_at<F>(&mut self, placement: Placement, build: F)
+    where
+        F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static;
+
+    /// Return true, if there is an active Drawer.
+    fn has_active_drawer(&mut self) -> bool;
+
+    /// Closes the active Drawer.
+    fn close_drawer(&mut self);
+
+    /// Opens a Modal.
+    fn open_modal<F>(&mut self, build: F)
+    where
+        F: Fn(Modal, &mut Window, &mut App) -> Modal + 'static;
+
+    /// Return true, if there is an active Modal.
+    fn has_active_modal(&mut self) -> bool;
+
+    /// Closes the last active Modal.
+    fn close_modal(&mut self);
+
+    /// Closes all active Modals.
+    fn close_all_modals(&mut self);
+
+    /// Pushes a notification to the notification list.
+    fn push_notification(&mut self, note: impl Into<Notification>);
+    fn clear_notifications(&mut self);
+    /// Returns number of notifications.
+    fn notifications(&mut self) -> Rc<Vec<Entity<Notification>>>;
+
+    /// Return current focused Input entity.
+    fn focused_input(&mut self) -> Option<Entity<TextInput>>;
+    /// Returns true if there is a focused Input entity.
+    fn has_focused_input(&mut self) -> bool;
+}
+
+impl AppContextModal for App {
+    fn open_drawer<F>(&mut self, build: F)
     where
         F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
     {
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.open_drawer(cx, build);
         });
     }
 
-    fn open_drawer_at<F>(&mut self, placement: Placement, cx: &mut App, build: F)
+    fn open_drawer_at<F>(&mut self, placement: Placement, build: F)
     where
         F: Fn(Drawer, &mut Window, &mut App) -> Drawer + 'static,
     {
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.open_drawer_at(placement, cx, build);
         });
     }
 
-    fn has_active_drawer(&mut self, cx: &mut App) -> bool {
+    fn has_active_drawer(&mut self) -> bool {
         let mut active = false;
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return active;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             active = window.has_active_drawer(cx);
         });
 
         active
     }
 
-    fn close_drawer(&mut self, cx: &mut App) {
-        let Some(window) = cx.active_window() else {
+    fn close_drawer(&mut self) {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.close_drawer(cx);
         });
     }
 
-    fn open_modal<F>(&mut self, cx: &mut App, build: F)
+    fn open_modal<F>(&mut self, build: F)
     where
         F: Fn(Modal, &mut Window, &mut App) -> Modal + 'static,
     {
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
-            window.open_modal(cx, build);
-        });
+        dbg!(window.window_id());
+
+        window
+            .update(self, |_, window, cx| {
+                window.open_modal(cx, build);
+            })
+            .unwrap();
     }
 
-    fn has_active_modal(&mut self, cx: &mut App) -> bool {
+    fn has_active_modal(&mut self) -> bool {
         let mut active = false;
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return active;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             active = window.has_active_modal(cx);
         });
 
         active
     }
 
-    fn close_modal(&mut self, cx: &mut App) {
-        let Some(window) = cx.active_window() else {
+    fn close_modal(&mut self) {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.close_modal(cx);
         });
     }
 
-    fn close_all_modals(&mut self, cx: &mut App) {
-        let Some(window) = cx.active_window() else {
+    fn close_all_modals(&mut self) {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.close_all_modals(cx);
         });
     }
 
-    fn push_notification(&mut self, note: impl Into<Notification>, cx: &mut App) {
-        let Some(window) = cx.active_window() else {
+    fn push_notification(&mut self, note: impl Into<Notification>) {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.push_notification(note, cx);
         });
     }
 
-    fn clear_notifications(&mut self, cx: &mut App) {
-        let Some(window) = cx.active_window() else {
+    fn clear_notifications(&mut self) {
+        let Some(window) = self.active_window() else {
             return;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             window.clear_notifications(cx);
         });
     }
 
-    fn notifications(&mut self, cx: &mut App) -> Rc<Vec<Entity<Notification>>> {
+    fn notifications(&mut self) -> Rc<Vec<Entity<Notification>>> {
         let mut results = Rc::new(vec![]);
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return results;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             results = window.notifications(cx);
         });
 
         results
     }
 
-    fn focused_input(&mut self, cx: &mut App) -> Option<Entity<TextInput>> {
+    fn focused_input(&mut self) -> Option<Entity<TextInput>> {
         let mut result = None;
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return result;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             result = window.focused_input(cx);
         });
 
         result
     }
 
-    fn has_focused_input(&mut self, cx: &mut App) -> bool {
+    fn has_focused_input(&mut self) -> bool {
         let mut result = false;
-        let Some(window) = cx.active_window() else {
+        let Some(window) = self.active_window() else {
             return result;
         };
 
-        _ = window.update(cx, |_, window, cx| {
+        _ = window.update(self, |_, window, cx| {
             result = window.has_focused_input(cx);
         });
 

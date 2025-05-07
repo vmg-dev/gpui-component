@@ -12,7 +12,7 @@ use gpui_component::{
     h_flex,
     input::TextInput,
     modal::ModalButtonProps,
-    v_flex, ContextModal as _,
+    v_flex, AppContextModal as _, ContextModal as _,
 };
 
 use crate::section;
@@ -98,7 +98,7 @@ impl ModalStory {
         let view = cx.entity().clone();
         let keyboard = self.model_keyboard;
 
-        window.open_modal(cx, move |modal, _, _| {
+        cx.open_modal(move |modal, _, _| {
             modal
                 .title("Form Modal")
                 .overlay(overlay)

@@ -65,7 +65,7 @@ pub use wry;
 pub use crate::Disableable;
 pub use event::InteractiveElementExt;
 pub use focusable::FocusableCycle;
-pub use root::{ContextModal, Root};
+pub use root::{AppContextModal, ContextModal, Root};
 pub use styled::*;
 pub use time::*;
 pub use title_bar::*;
