@@ -385,23 +385,11 @@ impl Root {
     where
         F: FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     {
-        if let Some(window) = cx
-            .active_window()
-            .map(|view| view.downcast::<Root>())
-            .flatten()
-        {
-            window
-                .update(cx, |root, window, cx| {
-                    f(root, window, cx);
-                })
-                .unwrap();
-        } else {
-            let Some(root) = window.root::<Root>().flatten() else {
-                return;
-            };
+        let Some(root) = window.root::<Root>().flatten() else {
+            return;
+        };
 
-            root.update(cx, |root, cx| f(root, window, cx));
-        }
+        root.update(cx, |root, cx| f(root, window, cx));
     }
 
     pub fn read<'a>(window: &'a Window, cx: &'a App) -> &'a Self {
