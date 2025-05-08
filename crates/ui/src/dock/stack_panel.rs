@@ -41,7 +41,7 @@ impl Panel for StackPanel {
         }
     }
     fn dump(&self, cx: &App) -> PanelState {
-        let flexes = self.panel_group.read(cx).ratios();
+        let flexes = self.panel_group.read(cx).flexes();
         let mut state = PanelState::new(self);
         for panel in &self.panels {
             state.add_child(panel.dump(cx));
@@ -186,11 +186,11 @@ impl StackPanel {
         self.insert_panel(panel, ix + 1, ratio, dock_area, window, cx);
     }
 
-    fn new_resizable_panel(panel: Arc<dyn PanelView>, ratio: Option<f32>) -> ResizablePanel {
+    fn new_resizable_panel(panel: Arc<dyn PanelView>, flex: Option<f32>) -> ResizablePanel {
         resizable_panel()
             .content_view(panel.view())
             .content_visible(move |_, cx| panel.visible(cx))
-            .when_some(ratio, |this, ratio| this.ratio(ratio))
+            .when_some(flex, |this, flex| this.flex(flex))
     }
 
     fn insert_panel(

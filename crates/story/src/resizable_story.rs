@@ -53,32 +53,35 @@ impl ResizableStory {
             v_resizable()
                 .group(
                     h_resizable()
-                        .ratio(0.1)
                         .child(
                             resizable_panel()
-                                .ratio(0.3)
+                                .flex(3.)
                                 .content(|_, cx| panel_box("Left 1 (Min 120px)", cx)),
                             cx,
                         )
                         .child(
-                            resizable_panel().content(|_, cx| panel_box("Center 1", cx)),
+                            resizable_panel()
+                                .flex(5.)
+                                .content(|_, cx| panel_box("Center 1", cx)),
                             cx,
                         )
                         .child(
                             resizable_panel()
-                                .ratio(0.4)
+                                .flex(2.)
                                 .content(|_, cx| panel_box("Right (Grow)", cx)),
                             cx,
                         ),
                     cx,
                 )
                 .child(
-                    resizable_panel().content(|_, cx| panel_box("Center (Grow)", cx)),
+                    resizable_panel()
+                        .flex(2.)
+                        .content(|_, cx| panel_box("Center (Grow)", cx)),
                     cx,
                 )
                 .child(
                     resizable_panel()
-                        .ratio(0.5)
+                        .flex(1.)
                         .content(|_, cx| panel_box("Bottom", cx)),
                     cx,
                 )
@@ -88,12 +91,14 @@ impl ResizableStory {
             h_resizable()
                 .child(
                     resizable_panel()
-                        .ratio(0.3)
+                        .flex(3.)
                         .content(|_, cx| panel_box("Left 2", cx)),
                     cx,
                 )
                 .child(
-                    resizable_panel().content(|_, cx| panel_box("Right (Grow)", cx)),
+                    resizable_panel()
+                        .flex(7.)
+                        .content(|_, cx| panel_box("Right (Grow)", cx)),
                     cx,
                 )
         });
