@@ -1,8 +1,12 @@
 use std::{collections::HashMap, ops::Range, rc::Rc};
 
 use gpui::{App, HighlightStyle, SharedString, TextRun, TextStyle};
+use itertools::Itertools;
 
 use crate::highlighter::Highlighter;
+
+/// The number of lines to batch together for highlighting.
+const BATCH_LINES: usize = 50;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LineHighlightStyle {
@@ -72,8 +76,15 @@ impl CodeHighlighter {
         let mut lines = vec![];
         let mut offset = 0;
         let mut new_cache = HashMap::new();
-        for line in text.split('\n') {
-            let cache_key = gpui::hash(&line);
+        for (_, chunk_lines) in text
+            .split('\n')
+            .enumerate()
+            .chunk_by(|(ix, _)| ix % BATCH_LINES == 0)
+            .into_iter()
+        {
+            let chunk_lines: Vec<&str> = chunk_lines.map(|(_, line)| line).collect();
+            let lines_text = chunk_lines.join("\n");
+            let cache_key = gpui::hash(&chunk_lines);
 
             // cache hit
             if let Some(line_style) = self.cache.get(&cache_key) {
@@ -85,14 +96,14 @@ impl CodeHighlighter {
                 lines.push(new_style);
             } else {
                 // cache miss
-                let styles = Rc::new(self.highlighter.highlight(line));
+                let styles = Rc::new(self.highlighter.highlight(&lines_text));
                 let line_style = LineHighlightStyle { offset, styles };
                 new_cache.insert(cache_key, line_style.clone());
                 lines.push(line_style);
             }
 
             // +1 for '\n'
-            offset += line.len() + 1;
+            offset += lines_text.len() + 1;
         }
 
         // Ensure to recreate cache to remove unused caches.
