@@ -32,7 +32,6 @@ pub struct SidebarStory {
     collapsed: bool,
     side: Side,
     click_to_open_submenu: bool,
-    show_dynamic_children: bool,
     focus_handle: gpui::FocusHandle,
     checked: bool,
 }
@@ -55,7 +54,6 @@ impl SidebarStory {
             focus_handle: cx.focus_handle(),
             checked: false,
             click_to_open_submenu: false,
-            show_dynamic_children: false,
         }
     }
 
@@ -78,15 +76,6 @@ impl SidebarStory {
                         .label("Click to open submenu")
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.click_to_open_submenu = *checked;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Switch::new("dynamic-children")
-                        .checked(self.show_dynamic_children)
-                        .label("Show dynamic children (test default_open)")
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.show_dynamic_children = *checked;
                             cx.notify();
                         })),
                 ),
@@ -420,14 +409,6 @@ impl Render for SidebarStory {
                                     .active(is_active)
                                     .disable(item.is_disabled())
                                     .click_to_open(self.click_to_open_submenu)
-                                    .when(ix == 0 && self.show_dynamic_children, |this| {
-                                        this.default_open(true).children(vec![
-                                            SidebarMenuItem::new("Child A")
-                                                .on_click(cx.listener(|_, _, _, _| {})),
-                                            SidebarMenuItem::new("Child B")
-                                                .on_click(cx.listener(|_, _, _, _| {})),
-                                        ])
-                                    })
                                     .when(ix == 0, |this| {
                                         this.suffix(|_, _| {
                                             Badge::new().dot().count(1).child(

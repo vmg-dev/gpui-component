@@ -248,8 +248,7 @@ impl Render for NumberInputStory {
                 section("Without appearance").max_w(px(200.)).child(
                     NumberInput::new(&self.number_input4)
                         .appearance(false)
-                        .bg(cx.theme().secondary)
-                        .text_color(cx.theme().info),
+                        .bg(cx.theme().secondary),
                 ),
             )
     }
