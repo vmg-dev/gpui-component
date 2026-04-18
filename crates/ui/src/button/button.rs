@@ -2,10 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     ActiveTheme, Colorize as _, Disableable, FocusableExt as _, Icon, IconName, Selectable,
-    Sizable, Size, StyleSized, StyledExt,
-    button::ButtonIcon,
-    h_flex,
-    tooltip::{ManagedTooltipExt as _, Tooltip},
+    Sizable, Size, StyleSized, StyledExt, button::ButtonIcon, h_flex, tooltip::Tooltip,
 };
 use gpui::{
     Action, AnyElement, App, ClickEvent, Corners, Div, Edges, ElementId, Hsla, InteractiveElement,
@@ -202,7 +199,6 @@ pub struct Button {
         SharedString,
         Option<(Rc<Box<dyn Action>>, Option<SharedString>)>,
     )>,
-    tooltip_builder: Option<Rc<dyn Fn(&mut Window, &mut App) -> gpui::AnyView>>,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
     on_hover: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
     loading: bool,
@@ -238,7 +234,6 @@ impl Button {
             border_edges: Edges::all(true),
             size: Size::Medium,
             tooltip: None,
-            tooltip_builder: None,
             on_click: None,
             on_hover: None,
             loading: false,
@@ -615,23 +610,17 @@ impl RenderOnce for Button {
                     .border_color(normal_style.border.opacity(0.8))
                     .text_color(normal_style.fg.opacity(0.8))
             })
-            .map(|this| {
-                if let Some(builder) = self.tooltip_builder {
-                    this.managed_tooltip(move |window, cx| builder(window, cx))
-                } else if let Some((tooltip, action)) = self.tooltip {
-                    this.managed_tooltip(move |window, cx| {
-                        Tooltip::new(tooltip.clone())
-                            .when_some(action.clone(), |this, (action, context)| {
-                                this.action(
-                                    action.boxed_clone().as_ref(),
-                                    context.as_ref().map(|c| c.as_ref()),
-                                )
-                            })
-                            .build(window, cx)
-                    })
-                } else {
-                    this
-                }
+            .when_some(self.tooltip, |this, (tooltip, action)| {
+                this.tooltip(move |window, cx| {
+                    Tooltip::new(tooltip.clone())
+                        .when_some(action.clone(), |this, (action, context)| {
+                            this.action(
+                                action.boxed_clone().as_ref(),
+                                context.as_ref().map(|c| c.as_ref()),
+                            )
+                        })
+                        .build(window, cx)
+                })
             })
             .focus_ring(is_focused, px(0.), window, cx)
     }
@@ -647,7 +636,7 @@ struct ButtonVariantStyle {
 
 impl ButtonVariant {
     fn bg_color(&self, outline: bool, cx: &mut App) -> Hsla {
-        if outline {
+        if outline && !matches!(self, Self::Custom(_)) {
             return cx.theme().input_background();
         }
 
@@ -660,7 +649,7 @@ impl ButtonVariant {
             Self::Success => cx.theme().success.mix_oklab(cx.theme().transparent, 0.2),
             Self::Info => cx.theme().info.mix_oklab(cx.theme().transparent, 0.2),
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent,
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.2),
+            Self::Custom(colors) => colors.color,
         }
     }
 
@@ -681,7 +670,7 @@ impl ButtonVariant {
             Self::Info => cx.theme().info,
             Self::Link => cx.theme().link,
             Self::Text => cx.theme().foreground,
-            Self::Custom(colors) => colors.color,
+            Self::Custom(colors) => colors.foreground,
         }
     }
 
@@ -720,10 +709,15 @@ impl ButtonVariant {
             }
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent,
             Self::Custom(colors) => {
-                if outline {
-                    colors.color.mix_oklab(transparent_white(), 0.4)
+                let border = if colors.color.is_transparent() {
+                    colors.foreground
                 } else {
                     colors.color
+                };
+                if outline {
+                    border.mix_oklab(transparent_white(), 0.4)
+                } else {
+                    border
                 }
             }
         }
@@ -802,13 +796,7 @@ impl ButtonVariant {
                     cx.theme().info.mix_oklab(cx.theme().transparent, 0.3)
                 }
             }
-            Self::Custom(colors) => {
-                if outline {
-                    colors.color.mix_oklab(cx.theme().transparent, 0.2)
-                } else {
-                    colors.color.mix_oklab(cx.theme().transparent, 0.3)
-                }
-            }
+            Self::Custom(colors) => colors.hover,
             Self::Ghost => {
                 if cx.theme().mode.is_dark() {
                     cx.theme().secondary.lighten(0.1).opacity(0.8)
@@ -862,7 +850,7 @@ impl ButtonVariant {
             Self::Warning => cx.theme().warning.mix_oklab(cx.theme().transparent, 0.4),
             Self::Success => cx.theme().success.mix_oklab(cx.theme().transparent, 0.4),
             Self::Info => cx.theme().info.mix_oklab(cx.theme().transparent, 0.4),
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.4),
+            Self::Custom(colors) => colors.active,
             Self::Link => cx.theme().transparent,
             Self::Text => cx.theme().transparent,
         };

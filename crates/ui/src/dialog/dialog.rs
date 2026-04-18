@@ -1,10 +1,14 @@
-use std::{rc::Rc, sync::LazyLock, time::Duration};
+use std::{
+    rc::Rc,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Bounds, BoxShadow, ClickEvent, Edges,
-    FocusHandle, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement,
-    Pixels, Point, RenderOnce, SharedString, StyleRefinement, Styled, Window, WindowControlArea,
-    actions, anchored, div, hsla, point, prelude::FluentBuilder, px,
+    AnyElement, App, Bounds, BoxShadow, ClickEvent, Edges, FocusHandle, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Point,
+    RenderOnce, SharedString, StyleRefinement, Styled, Window, WindowControlArea, actions,
+    anchored, div, hsla, point, prelude::FluentBuilder, px,
 };
 use rust_i18n::t;
 
@@ -18,8 +22,21 @@ use crate::{
     v_flex,
 };
 
-pub static ANIMATION_DURATION: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs_f64(0.25));
+pub static ANIMATION_DURATION: LazyLock<Duration> =
+    LazyLock::new(|| Duration::from_secs_f64(0.15));
 const CONTEXT: &str = "Dialog";
+
+#[derive(Clone, Copy)]
+pub(crate) enum DialogAnimationPhase {
+    Entering(Instant),
+    Closing(Instant),
+}
+
+impl Default for DialogAnimationPhase {
+    fn default() -> Self {
+        Self::Entering(Instant::now())
+    }
+}
 
 actions!(dialog, [CancelDialog, ConfirmDialog]);
 
@@ -213,6 +230,7 @@ pub struct Dialog {
     /// This will be change when open the dialog, the focus handle is create when open the dialog.
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layer_ix: usize,
+    pub(crate) animation_phase: DialogAnimationPhase,
 }
 
 pub(crate) fn overlay_color(overlay: bool, cx: &App) -> Hsla {
@@ -237,6 +255,7 @@ impl Dialog {
             props: DialogProps::default(),
             children: Vec::new(),
             layer_ix: 0,
+            animation_phase: DialogAnimationPhase::default(),
             button_props: DialogButtonProps::default(),
         }
     }
@@ -477,8 +496,23 @@ impl RenderOnce for Dialog {
             paddings.bottom = pb.to_pixels(base_size, rem_size);
         }
 
-        let animation =
-            Animation::new(*ANIMATION_DURATION).with_easing(cubic_bezier(0.32, 0.72, 0., 1.));
+        let animation_duration = *ANIMATION_DURATION;
+        let ease_out = cubic_bezier(0.0, 0.0, 0.2, 1.0);
+        let elapsed = match self.animation_phase {
+            DialogAnimationPhase::Entering(started_at)
+            | DialogAnimationPhase::Closing(started_at) => started_at.elapsed().as_secs_f32(),
+        };
+        let progress = (elapsed / animation_duration.as_secs_f32()).clamp(0.0, 1.0);
+        let easing = ease_out(progress);
+        let is_closing = matches!(self.animation_phase, DialogAnimationPhase::Closing(_));
+        let visibility = if is_closing { 1.0 - easing } else { easing };
+        // Match the web dialog's 150ms ease-out feel with a more legible
+        // fade/offset transition on both enter and exit.
+        let offset_y = px(16.) * (1.0 - visibility);
+
+        if progress < 1.0 {
+            window.request_animation_frame();
+        }
 
         anchored()
             .position(point(window_paddings.left, window_paddings.top))
@@ -490,7 +524,7 @@ impl RenderOnce for Dialog {
                     .w(view_size.width)
                     .h(view_size.height)
                     .when(self.props.overlay_visible, |this| {
-                        this.bg(overlay_color(self.props.overlay, cx))
+                        this.bg(overlay_color(self.props.overlay, cx).opacity(visibility))
                     })
                     .when(self.props.overlay, |this| {
                         // Only the last dialog owns the `mouse down - close dialog` event.
@@ -644,26 +678,24 @@ impl RenderOnce for Dialog {
                                     cx.stop_propagation();
                                 }
                             })
-                            .with_animation("slide-down", animation.clone(), move |this, delta| {
-                                // This is equivalent to `shadow_xl` with an extra opacity.
-                                let shadow = vec![
-                                    BoxShadow {
-                                        color: hsla(0., 0., 0., 0.1 * delta),
-                                        offset: point(px(0.), px(20.)),
-                                        blur_radius: px(25.),
-                                        spread_radius: px(-5.),
-                                    },
-                                    BoxShadow {
-                                        color: hsla(0., 0., 0., 0.1 * delta),
-                                        offset: point(px(0.), px(8.)),
-                                        blur_radius: px(10.),
-                                        spread_radius: px(-6.),
-                                    },
-                                ];
-                                this.top(y * delta).shadow(shadow)
-                            }),
+                            .shadow(vec![
+                                BoxShadow {
+                                    color: hsla(0., 0., 0., 0.14 * visibility),
+                                    offset: point(px(0.), px(20.)),
+                                    blur_radius: px(25.),
+                                    spread_radius: px(-5.),
+                                },
+                                BoxShadow {
+                                    color: hsla(0., 0., 0., 0.1 * visibility),
+                                    offset: point(px(0.), px(8.)),
+                                    blur_radius: px(10.),
+                                    spread_radius: px(-6.),
+                                },
+                            ])
+                            .top(y + offset_y)
+                            .opacity(visibility),
                     )
-                    .with_animation("fade-in", animation, move |this, delta| this.opacity(delta)),
+                    .opacity(visibility),
             )
             .into_any_element()
     }

@@ -4,16 +4,32 @@ use gpui::{
     ParentElement, Pixels, Point, Render, RenderOnce, Stateful, StyleRefinement, Styled,
     Subscription, Window, deferred, div, prelude::FluentBuilder as _, px,
 };
-use std::{cell::Cell, rc::Rc};
+use std::{
+    rc::Rc,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use crate::{
+    animation::cubic_bezier,
     Anchor, ElementExt, Selectable, StyledExt as _, actions::Cancel, anchored,
     global_state::GlobalState, v_flex,
 };
 
 const CONTEXT: &str = "Popover";
+pub(crate) static POPOVER_ANIMATION_DURATION: LazyLock<Duration> =
+    LazyLock::new(|| Duration::from_secs_f64(0.15));
+
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("escape", Cancel, Some(CONTEXT))])
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PopoverAnimationPhase {
+    Closed,
+    Entering(Instant),
+    Open,
+    Closing(Instant),
 }
 
 /// A popover element that can be triggered by a button or any other element.
@@ -170,7 +186,7 @@ impl Popover {
         self
     }
 
-    pub(crate) fn resolved_corner(anchor: Anchor, trigger_bounds: Bounds<Pixels>) -> Point<Pixels> {
+    fn resolved_corner(anchor: Anchor, trigger_bounds: Bounds<Pixels>) -> Point<Pixels> {
         let offset = if anchor.is_center() {
             gpui::point(trigger_bounds.size.width.half(), px(0.))
         } else {
@@ -201,9 +217,9 @@ impl Styled for Popover {
 pub struct PopoverState {
     focus_handle: FocusHandle,
     pub(crate) tracked_focus_handle: Option<FocusHandle>,
-    previous_focus_handle: Option<FocusHandle>,
     trigger_bounds: Bounds<Pixels>,
     open: bool,
+    phase: PopoverAnimationPhase,
     on_open_change: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
 
     _dismiss_subscription: Option<Subscription>,
@@ -214,9 +230,13 @@ impl PopoverState {
         Self {
             focus_handle: cx.focus_handle(),
             tracked_focus_handle: None,
-            previous_focus_handle: None,
             trigger_bounds: Bounds::default(),
             open: default_open,
+            phase: if default_open {
+                PopoverAnimationPhase::Open
+            } else {
+                PopoverAnimationPhase::Closed
+            },
             on_open_change: None,
             _dismiss_subscription: None,
         }
@@ -227,37 +247,46 @@ impl PopoverState {
         self.open
     }
 
+    fn is_present(&self) -> bool {
+        !matches!(self.phase, PopoverAnimationPhase::Closed)
+    }
+
     /// Dismiss the popover if it is open.
     pub fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.open {
-            self.toggle_open(window, cx);
+            self.set_open(false, window, cx);
         }
     }
 
     /// Open the popover if it is closed.
     pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.open {
-            self.toggle_open(window, cx);
+            self.set_open(true, window, cx);
         }
     }
 
-    fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        self.open = open;
-        if self.open {
-            GlobalState::global_mut(cx).register_deferred_popover(&self.focus_handle);
-        } else {
-            GlobalState::global_mut(cx).unregister_deferred_popover(&self.focus_handle);
+    fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match open {
+            true => self.begin_open(window, cx),
+            false => self.begin_close(window, cx),
         }
     }
 
-    fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let opening = !self.open;
-        if opening {
-            // Save the focused element before opening, so we can restore it on close.
-            self.previous_focus_handle = window.focused(cx);
+    fn begin_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open
+            && matches!(
+                self.phase,
+                PopoverAnimationPhase::Open | PopoverAnimationPhase::Entering(_)
+            )
+        {
+            return;
         }
-        self.set_open(opening, cx);
-        if self.open {
+
+        self.open = true;
+        self.phase = PopoverAnimationPhase::Entering(Instant::now());
+        GlobalState::global_mut(cx).register_deferred_popover(&self.focus_handle);
+
+        {
             let state = cx.entity();
             let focus_handle = if let Some(tracked_focus_handle) = self.tracked_focus_handle.clone()
             {
@@ -276,20 +305,65 @@ impl PopoverState {
                         window.refresh();
                     }),
                 );
-        } else {
-            self._dismiss_subscription = None;
-            // Restore focus to the element that was focused before the popover opened.
-            if let Some(prev) = self.previous_focus_handle.take() {
-                if self.focus_handle.contains_focused(window, cx) {
-                    prev.focus(window, cx);
-                }
-            }
         }
 
         if let Some(callback) = self.on_open_change.as_ref() {
-            callback(&self.open, window, cx);
+            callback(&true, window, cx);
         }
+
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(*POPOVER_ANIMATION_DURATION)
+                .await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                if this.open && matches!(this.phase, PopoverAnimationPhase::Entering(_)) {
+                    this.phase = PopoverAnimationPhase::Open;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+
         cx.notify();
+    }
+
+    fn begin_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.open
+            && matches!(
+                self.phase,
+                PopoverAnimationPhase::Closed | PopoverAnimationPhase::Closing(_)
+            )
+        {
+            return;
+        }
+
+        self.open = false;
+        self.phase = PopoverAnimationPhase::Closing(Instant::now());
+        GlobalState::global_mut(cx).unregister_deferred_popover(&self.focus_handle);
+        self._dismiss_subscription = None;
+
+        if let Some(callback) = self.on_open_change.as_ref() {
+            callback(&false, window, cx);
+        }
+
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(*POPOVER_ANIMATION_DURATION)
+                .await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                if !this.open && matches!(this.phase, PopoverAnimationPhase::Closing(_)) {
+                    this.phase = PopoverAnimationPhase::Closed;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+
+        cx.notify();
+    }
+
+    fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_open(!self.open, window, cx);
     }
 
     fn on_action_cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
@@ -314,7 +388,7 @@ impl EventEmitter<DismissEvent> for PopoverState {}
 impl Popover {
     pub(crate) fn render_popover<E>(
         anchor: Anchor,
-        position: Rc<Cell<Point<Pixels>>>,
+        trigger_bounds: Bounds<Pixels>,
         content: E,
         _: &mut Window,
         _: &mut App,
@@ -326,7 +400,7 @@ impl Popover {
             anchored()
                 .snap_to_window_with_margin(px(8.))
                 .anchor(anchor)
-                .position_fn(move || position.get())
+                .position(Self::resolved_corner(anchor, trigger_bounds))
                 .child(div().relative().child(content)),
         )
         .with_priority(1)
@@ -335,17 +409,28 @@ impl Popover {
     pub(crate) fn render_popover_content(
         anchor: Anchor,
         appearance: bool,
+        visibility: f32,
         _: &mut Window,
         cx: &mut App,
     ) -> Stateful<Div> {
+        // Radix-style expand animation: content fades in while padding
+        // eases from 75% of target to 100%, giving the impression of the
+        // surface opening outward from its origin instead of sliding into
+        // place. A true CSS-style scale transform isn't available on GPUI
+        // div elements today.
+        let pad_scale = 0.75 + 0.25 * visibility;
+        let padding = px(12.) * pad_scale;
         v_flex()
             .id("content")
             .occlude()
             .tab_group()
-            .when(appearance, |this| this.popover_style(cx).p_3())
+            .when(appearance, |this| this.popover_style(cx).p(padding))
+            .opacity(visibility)
             .map(|this| match anchor {
                 Anchor::TopLeft | Anchor::TopCenter | Anchor::TopRight => this.top_1(),
-                Anchor::BottomLeft | Anchor::BottomCenter | Anchor::BottomRight => this.bottom_1(),
+                Anchor::BottomLeft | Anchor::BottomCenter | Anchor::BottomRight => {
+                    this.bottom_1()
+                }
             })
     }
 }
@@ -365,23 +450,41 @@ impl RenderOnce for Popover {
             }
             state.on_open_change = self.on_open_change.clone();
             if let Some(force_open) = force_open {
-                state.set_open(force_open, cx);
+                state.set_open(force_open, window, cx);
             }
         });
 
         let open = state.read(cx).open;
+        let phase = state.read(cx).phase;
+        let present = state.read(cx).is_present();
         let focus_handle = state.read(cx).focus_handle.clone();
         let trigger_bounds = state.read(cx).trigger_bounds;
+        let animation_duration = *POPOVER_ANIMATION_DURATION;
+        let ease_out = cubic_bezier(0.0, 0.0, 0.2, 1.0);
+        let elapsed = match phase {
+            PopoverAnimationPhase::Closed | PopoverAnimationPhase::Open => 0.0,
+            PopoverAnimationPhase::Entering(started_at)
+            | PopoverAnimationPhase::Closing(started_at) => started_at.elapsed().as_secs_f32(),
+        };
+        let progress = match phase {
+            PopoverAnimationPhase::Closed | PopoverAnimationPhase::Open => 1.0,
+            PopoverAnimationPhase::Entering(_) | PopoverAnimationPhase::Closing(_) => {
+                (elapsed / animation_duration.as_secs_f32()).clamp(0.0, 1.0)
+            }
+        };
+        let easing = ease_out(progress);
+        let visibility = match phase {
+            PopoverAnimationPhase::Closed => 0.0,
+            PopoverAnimationPhase::Open => 1.0,
+            PopoverAnimationPhase::Entering(_) => easing,
+            PopoverAnimationPhase::Closing(_) => 1.0 - easing,
+        };
 
         let Some(trigger) = self.trigger else {
             return div().id("empty");
         };
 
         let parent_view_id = window.current_view();
-
-        // Shared cell so the deferred Anchored element can read the real trigger bounds at
-        // prepaint time (after trigger's on_prepaint has already fired with the correct bounds).
-        let position = Rc::new(Cell::new(Self::resolved_corner(self.anchor, trigger_bounds)));
 
         let el = div()
             .id(self.id)
@@ -391,9 +494,9 @@ impl RenderOnce for Popover {
                 move |_, window, cx| {
                     cx.stop_propagation();
                     state.update(cx, |state, cx| {
-                        // We force set open to false to toggle it correctly.
-                        // Because if the mouse down out will toggle open first.
-                        state.set_open(open, cx);
+                        // Keep the state in sync with the last rendered logical open
+                        // value before toggling to avoid duplicate transitions.
+                        state.set_open(open, window, cx);
                         state.toggle_open(window, cx);
                     });
                     cx.notify(parent_view_id);
@@ -401,24 +504,23 @@ impl RenderOnce for Popover {
             })
             .on_prepaint({
                 let state = state.clone();
-                let position = position.clone();
-                let anchor = self.anchor;
                 move |bounds, _, cx| {
-                    // Update the shared cell so the deferred Anchored element reads the correct
-                    // position when its prepaint runs (deferred prepaint happens after this).
-                    position.set(Self::resolved_corner(anchor, bounds));
                     state.update(cx, |state, _| {
                         state.trigger_bounds = bounds;
-                    });
+                    })
                 }
             });
 
-        if !open {
+        if !present {
             return el;
         }
 
+        if progress < 1.0 {
+            window.request_animation_frame();
+        }
+
         let popover_content =
-            Self::render_popover_content(self.anchor, self.appearance, window, cx)
+            Self::render_popover_content(self.anchor, self.appearance, visibility, window, cx)
                 .track_focus(&focus_handle)
                 .key_context(CONTEXT)
                 .on_action(window.listener_for(&state, PopoverState::on_action_cancel))
@@ -441,7 +543,7 @@ impl RenderOnce for Popover {
 
         el.child(Self::render_popover(
             self.anchor,
-            position,
+            trigger_bounds,
             popover_content,
             window,
             cx,

@@ -1,11 +1,10 @@
 use crate::{
     ActiveTheme, Anchor, ElementExt, Placement, StyledExt,
-    dialog::{ANIMATION_DURATION, Dialog},
+    dialog::{ANIMATION_DURATION, Dialog, DialogAnimationPhase},
     focus_trap::FocusTrapManager,
     input::InputState,
     notification::{Notification, NotificationList},
-    sheet::Sheet,
-    tooltip::TooltipOverlay,
+    sheet::{Sheet, SheetAnimationPhase, SHEET_ANIMATION_DURATION},
     window_border,
 };
 use gpui::{
@@ -13,7 +12,11 @@ use gpui::{
     IntoElement, KeyBinding, ParentElement as _, Pixels, Render, StyleRefinement, Styled,
     WeakFocusHandle, Window, actions, div, prelude::FluentBuilder as _,
 };
-use std::{any::TypeId, rc::Rc};
+use std::{
+    any::TypeId,
+    rc::Rc,
+    time::Instant,
+};
 
 actions!(root, [Tab, TabPrev]);
 
@@ -33,9 +36,9 @@ pub struct Root {
     view: AnyView,
     pub(crate) active_sheet: Option<ActiveSheet>,
     pub(crate) active_dialogs: Vec<ActiveDialog>,
+    next_dialog_id: usize,
     pub(super) focused_input: Option<Entity<InputState>>,
     pub notification: Entity<NotificationList>,
-    pub(crate) tooltip_overlay: Entity<TooltipOverlay>,
     sheet_size: Option<DefiniteLength>,
     window_shadow_size: Pixels,
     /// The focus handle that will be restored after a dialog is closed with animation.
@@ -49,26 +52,32 @@ pub(crate) struct ActiveSheet {
     /// The previous focused handle before opening the Sheet.
     previous_focused_handle: Option<WeakFocusHandle>,
     placement: Placement,
+    animation_phase: SheetAnimationPhase,
     builder: Rc<dyn Fn(Sheet, &mut Window, &mut App) -> Sheet + 'static>,
 }
 
 #[derive(Clone)]
 pub(crate) struct ActiveDialog {
+    id: usize,
     focus_handle: FocusHandle,
     /// The previous focused handle before opening the Dialog.
     previous_focused_handle: Option<WeakFocusHandle>,
+    animation_phase: DialogAnimationPhase,
     builder: Rc<dyn Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static>,
 }
 
 impl ActiveDialog {
     pub(crate) fn new(
+        id: usize,
         focus_handle: FocusHandle,
         previous_focused_handle: Option<WeakFocusHandle>,
         builder: impl Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static,
     ) -> Self {
         Self {
+            id,
             focus_handle,
             previous_focused_handle,
+            animation_phase: DialogAnimationPhase::Entering(Instant::now()),
             builder: Rc::new(builder),
         }
     }
@@ -82,9 +91,9 @@ impl Root {
             view: view.into(),
             active_sheet: None,
             active_dialogs: Vec::new(),
+            next_dialog_id: 0,
             focused_input: None,
             notification: cx.new(|cx| NotificationList::new(window, cx)),
-            tooltip_overlay: cx.new(|_| TooltipOverlay::new()),
             sheet_size: None,
             window_shadow_size: window_border::SHADOW_SIZE,
             pending_focus_restore: None,
@@ -180,6 +189,7 @@ impl Root {
             sheet = (active_sheet.builder)(sheet, window, cx);
             sheet.focus_handle = active_sheet.focus_handle.clone();
             sheet.placement = active_sheet.placement;
+            sheet.animation_phase = active_sheet.animation_phase;
 
             let size = sheet.size;
 
@@ -222,6 +232,7 @@ impl Root {
                 //
                 // So we keep the focus handle in the `active_dialog`, this is owned by the `Root`.
                 dialog.focus_handle = active_dialog.focus_handle.clone();
+                dialog.animation_phase = active_dialog.animation_phase;
 
                 dialog.layer_ix = i;
                 // Find the dialog which one needs to show overlay.
@@ -257,7 +268,11 @@ impl Root {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
 
+        let dialog_id = self.next_dialog_id;
+        self.next_dialog_id += 1;
+
         self.active_dialogs.push(ActiveDialog::new(
+            dialog_id,
             focus_handle,
             previous_focused_handle,
             build,
@@ -265,42 +280,63 @@ impl Root {
         cx.notify();
     }
 
-    fn close_dialog_internal(&mut self) -> Option<FocusHandle> {
-        self.focused_input = None;
+    fn finish_close_dialog(&mut self, dialog_id: usize) -> Option<FocusHandle> {
+        let dialog_ix = self.active_dialogs.iter().position(|dialog| dialog.id == dialog_id)?;
         self.active_dialogs
-            .pop()
-            .and_then(|d| d.previous_focused_handle)
-            .and_then(|h| h.upgrade())
+            .remove(dialog_ix)
+            .previous_focused_handle
+            .and_then(|handle| handle.upgrade())
     }
 
-    pub fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
-        if let Some(handle) = self.close_dialog_internal() {
-            window.focus(&handle, cx);
+    fn begin_close_dialog(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
+        self.focused_input = None;
+
+        let Some(dialog) = self.active_dialogs.last_mut() else {
+            return;
+        };
+
+        if matches!(dialog.animation_phase, DialogAnimationPhase::Closing(_)) {
+            return;
         }
-        cx.notify();
-    }
 
-    pub(crate) fn defer_close_dialog(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
-        if let Some(handle) = self.close_dialog_internal() {
-            let dialogs_count = self.active_dialogs.len();
+        dialog.animation_phase = DialogAnimationPhase::Closing(Instant::now());
+        let dialog_id = dialog.id;
+        let restore_focus = dialog
+            .previous_focused_handle
+            .as_ref()
+            .and_then(WeakFocusHandle::upgrade);
 
-            // Save for new dialogs opened during animation to maintain focus chain
+        if let Some(handle) = restore_focus.as_ref() {
             self.pending_focus_restore = Some(handle.downgrade());
+        }
 
-            cx.spawn_in(window, async move |this, cx| {
-                cx.background_executor().timer(*ANIMATION_DURATION).await;
-                let _ = this.update_in(cx, |this, window, cx| {
-                    let current_dialogs_count = this.active_dialogs.len();
-                    // Only restore focus if no new dialogs were opened during animation
-                    if current_dialogs_count == dialogs_count {
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(*ANIMATION_DURATION).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let removed_focus_handle = this.finish_close_dialog(dialog_id);
+                let has_newer_dialog = this.active_dialogs.iter().any(|dialog| dialog.id > dialog_id);
+
+                if !has_newer_dialog {
+                    if let Some(handle) = removed_focus_handle {
                         window.focus(&handle, cx);
                     }
                     this.pending_focus_restore = None;
-                });
-            })
-            .detach();
-        }
+                }
+
+                cx.notify();
+            });
+        })
+        .detach();
+
         cx.notify();
+    }
+
+    pub fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
+        self.begin_close_dialog(window, cx);
+    }
+
+    pub(crate) fn defer_close_dialog(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
+        self.begin_close_dialog(window, cx);
     }
 
     pub fn close_all_dialogs(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
@@ -337,22 +373,45 @@ impl Root {
             focus_handle,
             previous_focused_handle,
             placement,
+            animation_phase: SheetAnimationPhase::Entering(Instant::now()),
             builder: Rc::new(build),
         });
         cx.notify();
     }
 
+    fn finish_close_sheet(&mut self) -> Option<FocusHandle> {
+        self.active_sheet
+            .take()
+            .and_then(|sheet| sheet.previous_focused_handle)
+            .and_then(|handle| handle.upgrade())
+    }
+
     pub fn close_sheet(&mut self, window: &mut Window, cx: &mut Context<'_, Root>) {
         self.focused_input = None;
-        if let Some(previous_handle) = self
-            .active_sheet
-            .as_ref()
-            .and_then(|s| s.previous_focused_handle.as_ref())
-            .and_then(|h| h.upgrade())
-        {
-            window.focus(&previous_handle, cx);
+
+        let Some(sheet) = self.active_sheet.as_mut() else {
+            return;
+        };
+
+        if matches!(sheet.animation_phase, SheetAnimationPhase::Closing(_)) {
+            return;
         }
-        self.active_sheet = None;
+
+        sheet.animation_phase = SheetAnimationPhase::Closing(Instant::now());
+
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(*SHEET_ANIMATION_DURATION)
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(previous_handle) = this.finish_close_sheet() {
+                    window.focus(&previous_handle, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+
         cx.notify();
     }
 
@@ -383,12 +442,6 @@ impl Root {
         self.notification
             .update(cx, |view, cx| view.clear(window, cx));
         cx.notify();
-    }
-
-    /// Get the tooltip overlay entity for this window.
-    pub(crate) fn tooltip_overlay(window: &Window, cx: &App) -> Option<Entity<TooltipOverlay>> {
-        let root = window.root::<Root>()??;
-        Some(root.read(cx).tooltip_overlay.clone())
     }
 
     /// Return the root view of the Root.
@@ -489,8 +542,7 @@ impl Render for Root {
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .refine_style(&self.style)
-                .child(self.view.clone())
-                .child(self.tooltip_overlay.clone()),
+                .child(self.view.clone()),
         )
     }
 }
