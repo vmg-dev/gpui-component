@@ -317,7 +317,6 @@ struct SelectOptions {
     search_placeholder: Option<SharedString>,
     empty: Option<AnyElement>,
     menu_width: Length,
-    menu_max_h: Length,
     disabled: bool,
     appearance: bool,
 }
@@ -333,7 +332,6 @@ impl Default for SelectOptions {
             title_prefix: None,
             empty: None,
             menu_width: Length::Auto,
-            menu_max_h: rems(20.).into(),
             disabled: false,
             appearance: true,
             search_placeholder: None,
@@ -717,15 +715,12 @@ where
         cx.notify();
     }
 
-    fn escape(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+    fn escape(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         if !self.open {
             cx.propagate();
-            return;
         }
 
-        cx.stop_propagation();
         self.set_open(false, cx);
-        self.focus(window, cx);
         cx.notify();
     }
 
@@ -907,7 +902,7 @@ where
                                                     },
                                                 )
                                                 .with_size(self.options.size)
-                                                .max_h(self.options.menu_max_h)
+                                                .max_h(rems(20.))
                                                 .paddings(Edges::all(px(4.))),
                                         ),
                                 )
@@ -937,12 +932,6 @@ where
     /// Set the width of the dropdown menu, default: Length::Auto
     pub fn menu_width(mut self, width: impl Into<Length>) -> Self {
         self.options.menu_width = width.into();
-        self
-    }
-
-    /// Set the max height of the dropdown menu, default: 20rem
-    pub fn menu_max_h(mut self, max_h: impl Into<Length>) -> Self {
-        self.options.menu_max_h = max_h.into();
         self
     }
 
