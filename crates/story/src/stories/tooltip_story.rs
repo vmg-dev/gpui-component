@@ -1,13 +1,12 @@
 use gpui::{
     App, AppContext, Context, Entity, Focusable, InteractiveElement, KeyBinding, ParentElement,
-    Render, StatefulInteractiveElement as _, Styled, Window, actions, div,
+    Render, StatefulInteractiveElement, Styled, Window, actions, div,
 };
 
 use gpui_component::{
-    IconName,
-    button::{Button, ButtonVariant, ButtonVariants, Toggle},
+    ActiveTheme, IconName,
+    button::{Button, ButtonVariant, ButtonVariants},
     checkbox::Checkbox,
-    clipboard::Clipboard,
     dock::PanelControl,
     h_flex,
     radio::Radio,
@@ -43,10 +42,6 @@ impl TooltipStory {
 impl Story for TooltipStory {
     fn title() -> &'static str {
         "Tooltip"
-    }
-
-    fn description() -> &'static str {
-        "A popup that displays information related to an element when the element receives keyboard focus or the mouse hovers over it."
     }
 
     fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render> {
@@ -87,17 +82,41 @@ impl Render for TooltipStory {
                         Some("Tooltip"),
                     ))
                     .child(
-                        Button::new("btn3")
-                            .label("Hover me")
-                            .tooltip("This is tooltip 3"),
+                        div()
+                            .child(Button::new("btn3").label("Hover me"))
+                            .id("tooltip-4")
+                            .tooltip(|window, cx| {
+                                Tooltip::element(|_, cx| {
+                                    h_flex()
+                                        .gap_x_1()
+                                        .child(IconName::Info)
+                                        .child(
+                                            div()
+                                                .child("Muted Foreground")
+                                                .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .child(div().child("Danger").text_color(cx.theme().danger))
+                                        .child(IconName::ArrowUp)
+                                })
+                                .build(window, cx)
+                            }),
                     ),
+            )
+            .child(
+                section("Label Tooltip").child(div().child("Hover me").id("tooltip-2").tooltip(
+                    |window, cx| {
+                        Tooltip::new("This is a Label")
+                            .action(&Info, Some("Tooltip"))
+                            .build(window, cx)
+                    },
+                )),
             )
             .child(
                 section("Checkbox Tooltip").child(
                     Checkbox::new("check")
                         .label("Remember me")
                         .checked(true)
-                        .tooltip("This is a tooltip"),
+                        .tooltip(|window, cx| Tooltip::new("This is a checkbox").build(window, cx)),
                 ),
             )
             .child(
@@ -105,7 +124,9 @@ impl Render for TooltipStory {
                     Radio::new("radio")
                         .label("Radio with tooltip")
                         .checked(true)
-                        .tooltip("This is a radio button"),
+                        .tooltip(|window, cx| {
+                            Tooltip::new("This is a radio button").build(window, cx)
+                        }),
                 ),
             )
             .child(
@@ -114,34 +135,6 @@ impl Render for TooltipStory {
                         .checked(true)
                         .tooltip("This is a switch"),
                 ),
-            )
-            .child(
-                section("Toggle Tooltip").child(
-                    h_flex()
-                        .gap_2()
-                        .child(Toggle::new("toggle1").label("Bold").tooltip("Toggle bold"))
-                        .child(
-                            Toggle::new("toggle2")
-                                .icon(IconName::Heart)
-                                .tooltip("Toggle favorite"),
-                        ),
-                ),
-            )
-            .child(
-                section("Clipboard Tooltip").child(
-                    Clipboard::new("clip1")
-                        .value("Hello, World!")
-                        .tooltip("Copy to clipboard"),
-                ),
-            )
-            .child(
-                section("Default Tooltip").child(div().child("Hover me").id("tooltip-2").tooltip(
-                    |window, cx| {
-                        Tooltip::new("This is a default tooltip style by GPUI.")
-                            .action(&Info, Some("Tooltip"))
-                            .build(window, cx)
-                    },
-                )),
             )
     }
 }

@@ -1,10 +1,8 @@
 use crate::{ActiveTheme, Disableable, Icon, Selectable, Sizable as _, StyledExt, h_flex};
-use std::collections::HashMap;
 use gpui::{
-    AnyElement, App, ClickEvent, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ParentElement, RenderOnce, Stateful,
-    StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
-    prelude::FluentBuilder as _,
+    AnyElement, App, ClickEvent, Div, ElementId, InteractiveElement, IntoElement, MouseMoveEvent,
+    ParentElement, RenderOnce, Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled,
+    Window, div, prelude::FluentBuilder as _,
 };
 use smallvec::SmallVec;
 
@@ -33,7 +31,6 @@ pub struct ListItem {
     confirmed: bool,
     check_icon: Option<Icon>,
     on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
-    on_mouse_down: HashMap<MouseButton, Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>>,
     on_mouse_enter: Option<Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static>>,
     suffix: Option<Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>>,
     children: SmallVec<[AnyElement; 2]>,
@@ -51,7 +48,6 @@ impl ListItem {
             secondary_selected: false,
             confirmed: false,
             on_click: None,
-            on_mouse_down: HashMap::new(),
             on_mouse_enter: None,
             check_icon: None,
             suffix: None,
@@ -105,15 +101,6 @@ impl ListItem {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Box::new(handler));
-        self
-    }
-
-    pub fn on_mouse_down(
-        mut self,
-        button: MouseButton,
-        handler: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_mouse_down.insert(button, Box::new(handler));
         self
     }
 
@@ -187,15 +174,6 @@ impl RenderOnce for ListItem {
                 this.when_some(self.on_click, |this, on_click| this.on_click(on_click))
                     .when_some(self.on_mouse_enter, |this, on_mouse_enter| {
                         this.on_mouse_move(move |ev, window, cx| (on_mouse_enter)(ev, window, cx))
-                    })
-                    .map(|this| {
-                        self.on_mouse_down
-                            .into_iter()
-                            .fold(this, |this, (button, handler)| {
-                                this.on_mouse_down(button, move |ev, window, cx| {
-                                    handler(ev, window, cx)
-                                })
-                            })
                     })
                     .when(!is_active, |this| {
                         this.hover(|this| this.bg(cx.theme().list_hover))

@@ -1,6 +1,3 @@
-/// The character used to mask password input fields.
-pub(super) const MASK_CHAR: char = '•';
-
 mod blink_cursor;
 mod change;
 mod clear_button;

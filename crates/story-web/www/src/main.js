@@ -11,8 +11,8 @@ async function init() {
     await wasm.run();
 
     // Hide loading indicator
-    if (appEl) {
-      appEl.remove();
+    if (loadingEl) {
+      loadingEl.remove();
     }
   } catch (error) {
     console.error('Failed to initialize:', error);
