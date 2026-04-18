@@ -27,10 +27,10 @@ GPUI Component is a comprehensive UI component library for building fantastic de
 
 Add `gpui` and `gpui-component` to your `Cargo.toml`:
 
-```toml
+```toml-vue
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui = "{{ VERSION }}"
+gpui-component = "{{ VERSION }}"
 ```
 
 Then create a simple "Hello, World!" application with a button:
@@ -59,7 +59,9 @@ impl Render for HelloWorld {
 }
 
 fn main() {
-    gpui_platform::application().run(move |cx| {
+    let app = Application::new();
+
+    app.run(move |cx| {
         // This must be called before using any GPUI Component features.
         gpui_component::init(cx);
 

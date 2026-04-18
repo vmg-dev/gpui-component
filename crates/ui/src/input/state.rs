@@ -20,7 +20,7 @@ use sum_tree::Bias;
 use unicode_segmentation::*;
 
 use super::{
-    DisplayMap, MASK_CHAR, blink_cursor::BlinkCursor, change::Change, element::TextElement,
+    DisplayMap, blink_cursor::BlinkCursor, change::Change, element::TextElement,
     mask_pattern::MaskPattern, mode::InputMode, number_input,
 };
 use crate::Size;
@@ -34,10 +34,9 @@ use crate::input::{
     HoverDefinition, InlineCompletion, Lsp, Position, RopeExt as _, Selection,
     display_map::LineLayout,
     element::RIGHT_MARGIN,
-    popovers::{ContextMenu, DiagnosticPopover, HoverPopover, InputContextMenu},
+    popovers::{ContextMenu, DiagnosticPopover, HoverPopover, MouseContextMenu},
     search::{self, SearchPanel},
 };
-use crate::menu::PopupMenu;
 use crate::{Root, history::History};
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
@@ -326,8 +325,6 @@ pub struct InputState {
     pub(super) clean_on_escape: bool,
     pub(super) soft_wrap: bool,
     pub(super) show_whitespaces: bool,
-    /// This flag tells the renderer to prefer the end of the current visual line.
-    pub(crate) cursor_line_end_affinity: bool,
     pub(super) pattern: Option<regex::Regex>,
     pub(super) validate: Option<Box<dyn Fn(&str, &mut Context<Self>) -> bool + 'static>>,
     pub(crate) scroll_handle: ScrollHandle,
@@ -344,20 +341,8 @@ pub struct InputState {
     /// Popover
     diagnostic_popover: Option<Entity<DiagnosticPopover>>,
     /// Completion/CodeAction context menu
-    pub(super) context_menu_content: Option<ContextMenu>,
-    pub(super) context_menu: Entity<InputContextMenu>,
-
-    /// An optional context menu builder to allow a custom context menu on the input.
-    ///
-    /// If set, this will override the built-in context menu and ignore the value set in [`Self::enable_context_menu`].
-    pub(super) context_menu_builder:
-        Option<Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>>,
-
-    /// Whether the context menu that shows on right-click is enabled.
-    ///
-    /// This value will be ignored if a context menu builder is defined in [`Self::context_menu_builder`].
-    pub(super) enable_context_menu: bool,
-
+    pub(super) context_menu: Option<ContextMenu>,
+    pub(super) mouse_context_menu: Entity<MouseContextMenu>,
     /// A flag to indicate if we are currently inserting a completion item.
     pub(super) completion_inserting: bool,
     pub(super) hover_popover: Option<Entity<HoverPopover>>,
@@ -414,7 +399,7 @@ impl InputState {
         ];
 
         let text_style = window.text_style();
-        let mouse_context_menu = InputContextMenu::new(cx.entity(), window, cx);
+        let mouse_context_menu = MouseContextMenu::new(cx.entity(), window, cx);
 
         Self {
             focus_handle: focus_handle.clone(),
@@ -452,10 +437,8 @@ impl InputState {
             text_align: TextAlign::Left,
             lsp: Lsp::default(),
             diagnostic_popover: None,
-            context_menu_content: None,
-            context_menu: mouse_context_menu,
-            context_menu_builder: None,
-            enable_context_menu: true,
+            context_menu: None,
+            mouse_context_menu,
             completion_inserting: false,
             hover_popover: None,
             hover_definition: HoverDefinition::default(),
@@ -465,7 +448,6 @@ impl InputState {
             _context_menu_task: Task::ready(Ok(())),
             _pending_update: false,
             inline_completion: InlineCompletion::default(),
-            cursor_line_end_affinity: false,
         }
     }
 
@@ -508,15 +490,6 @@ impl InputState {
         let language: SharedString = language.into();
         self.mode = InputMode::code_editor(language);
         self.searchable = true;
-        self
-    }
-
-    /// Sets whether the context menu that shows on right-click is enabled.
-    ///
-    /// The context menu is enabled by default.
-    /// This value will be ignored if a custom context menu is defined on the input.
-    pub fn context_menu(mut self, enable: bool) -> Self {
-        self.enable_context_menu = enable;
         self
     }
 
@@ -676,7 +649,7 @@ impl InputState {
         for (vi, line) in last_layout.lines.iter().enumerate() {
             let prev_lines_offset = last_layout.visible_line_byte_offsets[vi];
             let local_offset = offset.saturating_sub(prev_lines_offset);
-            if let Some(pos) = line.position_for_index(local_offset, last_layout, false) {
+            if let Some(pos) = line.position_for_index(local_offset, last_layout) {
                 let sub_line_index = (pos.y / line_height) as usize;
                 let adjusted_pos = point(pos.x + last_layout.line_number_width, pos.y + y_offset);
                 return (vi, sub_line_index, Some(adjusted_pos));
@@ -1061,59 +1034,24 @@ impl InputState {
             .unwrap_or(self.text.len())
     }
 
-    /// Get start of line byte offset of cursor.
-    ///
-    /// When soft wrap is active, first press goes to visual line start,
-    /// second press (already at visual start) goes to logical line start.
+    /// Get start of line byte offset of cursor
     pub(super) fn start_of_line(&self) -> usize {
         if self.mode.is_single_line() {
             return 0;
         }
 
         let row = self.text.offset_to_point(self.cursor()).row;
-        let logical_start = self.text.line_start_offset(row);
-
-        if self.soft_wrap && self.mode.is_code_editor() {
-            let wrap_point = self.display_map.offset_to_wrap_display_point(self.cursor());
-            if let Some(line) = self.display_map.lines().get(row)
-                && let Some(range) = line.wrapped_lines.get(wrap_point.local_row)
-            {
-                let visual_start = logical_start + range.start;
-                if self.cursor() != visual_start {
-                    return visual_start;
-                }
-            }
-        }
-
-        logical_start
+        self.text.line_start_offset(row)
     }
 
-    /// Get end of line byte offset of cursor.
-    ///
-    /// When soft wrap is active, first press goes to visual line end,
-    /// second press (already at visual end) goes to logical line end.
+    /// Get end of line byte offset of cursor
     pub(super) fn end_of_line(&self) -> usize {
         if self.mode.is_single_line() {
             return self.text.len();
         }
 
         let row = self.text.offset_to_point(self.cursor()).row;
-        let logical_start = self.text.line_start_offset(row);
-        let logical_end = self.text.line_end_offset(row);
-
-        if self.soft_wrap && self.mode.is_code_editor() {
-            let wrap_point = self.display_map.offset_to_wrap_display_point(self.cursor());
-            if let Some(line) = self.display_map.lines().get(row)
-                && let Some(range) = line.wrapped_lines.get(wrap_point.local_row)
-            {
-                let visual_end = logical_start + range.end;
-                if self.cursor() != visual_end {
-                    return visual_end;
-                }
-            }
-        }
-
-        logical_end
+        self.text.line_end_offset(row)
     }
 
     /// Get start line of selection start or end (The min value).
@@ -1390,9 +1328,7 @@ impl InputState {
 
         // Show Mouse context menu
         if event.button == MouseButton::Right {
-            if self.enable_context_menu || self.context_menu_builder.is_some() {
-                self.handle_right_click_menu(event, offset, window, cx);
-            }
+            self.handle_right_click_menu(event, offset, window, cx);
             return;
         }
 
@@ -1422,19 +1358,6 @@ impl InputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Check if mouse is within bounds
-        let within_bounds = self
-            .last_bounds
-            .as_ref()
-            .map(|bounds| bounds.contains(&event.position))
-            .unwrap_or(false);
-
-        if !within_bounds {
-            // Clear hover when mouse leaves the input
-            self.clear_hover_state(cx);
-            return;
-        }
-
         // Show diagnostic popover on mouse move
         let offset = self.index_for_mouse_position(event.position);
         self.handle_mouse_move(offset, event, window, cx);
@@ -1565,7 +1488,7 @@ impl InputState {
             .get(row.saturating_sub(last_layout.visible_range.start))
         {
             // Check to scroll horizontally and soft wrap lines
-            if let Some(pos) = line.position_for_index(point.column, last_layout, false) {
+            if let Some(pos) = line.position_for_index(point.column, last_layout) {
                 let bounds_width = bounds.size.width - last_layout.line_number_width;
                 let col_offset_x = pos.x;
                 row_offset_y += pos.y;
@@ -1745,7 +1668,7 @@ impl InputState {
                 let local_index = line_layout.closest_index_for_x(pos.x, last_layout);
                 let index = line_start_offset + local_index;
                 return if self.masked {
-                    self.text.char_index_to_offset(index / MASK_CHAR.len_utf8())
+                    self.text.char_index_to_offset(index)
                 } else {
                     index.min(self.text.len())
                 };
@@ -1755,15 +1678,14 @@ impl InputState {
             if let Some(local_index) = line_layout.closest_index_for_position(pos, last_layout) {
                 let index = line_start_offset + local_index;
                 return if self.masked {
-                    self.text.char_index_to_offset(index / MASK_CHAR.len_utf8())
+                    self.text.char_index_to_offset(index)
                 } else {
                     index.min(self.text.len())
                 };
             } else if pos.y < px(0.) {
                 // Mouse is above this line, return start of this line
                 return if self.masked {
-                    self.text
-                        .char_index_to_offset(line_start_offset / MASK_CHAR.len_utf8())
+                    self.text.char_index_to_offset(line_start_offset)
                 } else {
                     line_start_offset
                 };
@@ -1773,7 +1695,12 @@ impl InputState {
         }
 
         // Mouse is below all visible lines, return end of text
-        self.text.len()
+        let index = self.text.len();
+        if self.masked {
+            self.text.char_index_to_offset(index)
+        } else {
+            index
+        }
     }
 
     /// Returns a y offsetted point for the line origin.
@@ -1914,7 +1841,7 @@ impl InputState {
 
         self.hover_popover = None;
         self.diagnostic_popover = None;
-        self.context_menu_content = None;
+        self.context_menu = None;
         self.clear_inline_completion(cx);
         self.blink_cursor.update(cx, |cursor, cx| {
             cursor.stop(cx);
@@ -2211,9 +2138,7 @@ impl InputState {
                 }
 
                 // Trigger re-render so the new highlights are displayed.
-                // Also update fold candidates now that the tree is ready.
-                _ = entity.update(cx, |state, cx| {
-                    state.update_fold_candidates();
+                _ = entity.update(cx, |_, cx| {
                     cx.notify();
                 });
             }
@@ -2448,21 +2373,17 @@ impl EntityInputHandler for InputState {
             let index_offset = last_layout.visible_line_byte_offsets[vi];
 
             if start_origin.is_none() {
-                if let Some(p) = line.position_for_index(
-                    range.start.saturating_sub(index_offset),
-                    last_layout,
-                    false,
-                ) {
+                if let Some(p) =
+                    line.position_for_index(range.start.saturating_sub(index_offset), last_layout)
+                {
                     start_origin = Some(p + point(px(0.), y_offset));
                 }
             }
 
             if end_origin.is_none() {
-                if let Some(p) = line.position_for_index(
-                    range.end.saturating_sub(index_offset),
-                    last_layout,
-                    false,
-                ) {
+                if let Some(p) =
+                    line.position_for_index(range.end.saturating_sub(index_offset), last_layout)
+                {
                     end_origin = Some(p + point(px(0.), y_offset));
                 }
             }
@@ -2531,7 +2452,7 @@ impl Render for InputState {
             .overflow_x_hidden()
             .child(TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone()))
             .children(self.diagnostic_popover.clone())
-            .children(self.context_menu_content.as_ref().map(|menu| menu.render()))
+            .children(self.context_menu.as_ref().map(|menu| menu.render()))
             .children(self.hover_popover.clone())
     }
 }

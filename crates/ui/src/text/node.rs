@@ -962,20 +962,17 @@ impl BlockNode {
                                     cx,
                                 );
 
-                                // Continuation paragraph — stack vertically below
-                                // the previous row, indented to align with the text
-                                // column (past bullet/number prefix).
+                                // merge content into last item.
                                 if last_not_list {
-                                    if let Some(preceding_row) = items.pop() {
-                                        items.push(
-                                            v_flex().child(preceding_row).child(
-                                                div()
-                                                    .w_full()
-                                                    .pl(rems(0.75))
-                                                    .overflow_hidden()
-                                                    .child(text),
-                                            ),
-                                        );
+                                    if let Some(item_item) = items.last_mut() {
+                                        item_item.extend(vec![
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .overflow_hidden()
+                                                .child(text)
+                                                .into_any_element(),
+                                        ]);
                                         continue;
                                     }
                                 }
@@ -1019,7 +1016,11 @@ impl BlockNode {
                                             )
                                         })
                                         .child(
-                                            div().flex_1().min_w_0().overflow_hidden().child(text),
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .overflow_hidden()
+                                                .child(text),
                                         ),
                                 );
                             }
@@ -1112,17 +1113,16 @@ impl BlockNode {
 
                                                 cells.push(
                                                     div()
-                                                        .id(("cell", ix))
-                                                        .overflow_hidden()
+                                                        .id("cell")
+                                                        .flex()
                                                         .when(
                                                             align == ColumnumnAlign::Center,
-                                                            |this| this.text_center(),
+                                                            |this| this.justify_center(),
                                                         )
                                                         .when(
                                                             align == ColumnumnAlign::Right,
-                                                            |this| this.text_right(),
+                                                            |this| this.justify_end(),
                                                         )
-                                                        .min_w_16()
                                                         .w(Length::Definite(relative(len as f32)))
                                                         .px_2()
                                                         .py_1()
@@ -1130,6 +1130,7 @@ impl BlockNode {
                                                             this.border_r_1()
                                                                 .border_color(cx.theme().border)
                                                         })
+                                                        .truncate()
                                                         .child(
                                                             cell.children
                                                                 .render(node_cx, window, cx),

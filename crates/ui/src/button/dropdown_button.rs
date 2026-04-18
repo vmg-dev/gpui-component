@@ -1,13 +1,11 @@
 use gpui::{
     App, Context, Corner, Corners, Edges, ElementId, InteractiveElement as _, IntoElement,
-    ParentElement, RenderOnce, SharedString, StyleRefinement, Styled, Window, div,
-    prelude::FluentBuilder,
+    ParentElement, RenderOnce, StyleRefinement, Styled, Window, div, prelude::FluentBuilder,
 };
 
 use crate::{
     Disableable, IconName, Selectable, Sizable, Size, StyledExt as _,
     menu::{DropdownMenu, PopupMenu},
-    tooltip::ComponentTooltip,
 };
 
 use super::{Button, ButtonRounded, ButtonVariant, ButtonVariants};
@@ -29,7 +27,6 @@ pub struct DropdownButton {
     size: Size,
     rounded: ButtonRounded,
     anchor: Corner,
-    tooltip: ComponentTooltip,
 }
 
 impl DropdownButton {
@@ -49,14 +46,7 @@ impl DropdownButton {
             size: Size::default(),
             rounded: ButtonRounded::default(),
             anchor: Corner::TopRight,
-            tooltip: ComponentTooltip::default(),
         }
-    }
-
-    /// Set tooltip text for the dropdown button.
-    pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
-        self.tooltip.text = Some((tooltip.into(), None));
-        self
     }
 
     /// Set the left button of the dropdown button.
@@ -211,7 +201,6 @@ impl RenderOnce for DropdownButton {
                     )
                 })
             })
-            .map(|this| self.tooltip.apply(this))
     }
 }
 

@@ -41,7 +41,7 @@ impl TabVariant {
         }
     }
 
-    pub(super) fn inner_height(&self, size: Size) -> Pixels {
+    fn inner_height(&self, size: Size) -> Pixels {
         match size {
             Size::XSmall => match self {
                 TabVariant::Tab | TabVariant::Outline | TabVariant::Pill => px(18.),
@@ -171,7 +171,7 @@ impl TabVariant {
     fn hovered(&self, selected: bool, cx: &App) -> TabStyle {
         match self {
             TabVariant::Tab => TabStyle {
-                fg: cx.theme().tab_active_foreground,
+                fg: cx.theme().tab_foreground,
                 bg: cx.theme().transparent,
                 borders: Edges {
                     left: px(1.),
@@ -194,7 +194,7 @@ impl TabVariant {
                 ..Default::default()
             },
             TabVariant::Segmented => TabStyle {
-                fg: cx.theme().tab_active_foreground,
+                fg: cx.theme().tab_foreground,
                 bg: cx.theme().transparent,
                 inner_bg: if selected {
                     cx.theme().background
@@ -204,7 +204,7 @@ impl TabVariant {
                 ..Default::default()
             },
             TabVariant::Underline => TabStyle {
-                fg: cx.theme().tab_active_foreground,
+                fg: cx.theme().tab_foreground,
                 bg: cx.theme().transparent,
                 inner_bg: cx.theme().transparent,
                 borders: Edges {
@@ -354,7 +354,7 @@ impl TabVariant {
         }
     }
 
-    pub(super) fn inner_radius(&self, size: Size, cx: &App) -> Pixels {
+    fn inner_radius(&self, size: Size, cx: &App) -> Pixels {
         match self {
             TabVariant::Segmented => match size {
                 Size::Large => self.tab_bar_radius(size, cx) - px(3.),
@@ -403,7 +403,6 @@ pub struct Tab {
     size: Size,
     pub(super) disabled: bool,
     pub(super) selected: bool,
-    pub(super) indicator_active: bool,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
 }
 
@@ -448,7 +447,6 @@ impl Default for Tab {
             children: Vec::new(),
             disabled: false,
             selected: false,
-            indicator_active: false,
             prefix: None,
             suffix: None,
             variant: TabVariant::default(),
