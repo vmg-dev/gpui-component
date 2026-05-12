@@ -2182,6 +2182,23 @@ impl EntityInputHandler for InputState {
         })
     }
 
+    fn set_selected_text_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        reversed: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let range = self.range_from_utf16(&range_utf16);
+        self.selected_range = range.into();
+        self.selection_reversed = reversed;
+        self.ime_marked_range = None;
+        if self.selected_range.is_empty() {
+            self.update_preferred_column();
+        }
+        cx.notify();
+    }
+
     fn marked_text_range(
         &self,
         _window: &mut Window,
