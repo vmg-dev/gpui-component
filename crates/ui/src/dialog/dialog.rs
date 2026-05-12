@@ -5,10 +5,10 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Bounds, BoxShadow, ClickEvent, Edges, FocusHandle, Hsla,
-    InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Point,
-    RenderOnce, SharedString, StyleRefinement, Styled, Window, WindowControlArea, actions,
-    anchored, div, hsla, point, prelude::FluentBuilder, px,
+    AnyElement, App, Bounds, BoxShadow, ClickEvent, Edges, FocusHandle, Hsla, InteractiveElement,
+    IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Point, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, WindowControlArea, actions, anchored, div, hsla, point,
+    prelude::FluentBuilder, px,
 };
 use rust_i18n::t;
 
@@ -22,8 +22,7 @@ use crate::{
     v_flex,
 };
 
-pub static ANIMATION_DURATION: LazyLock<Duration> =
-    LazyLock::new(|| Duration::from_secs_f64(0.15));
+pub static ANIMATION_DURATION: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs_f64(0.15));
 const CONTEXT: &str = "Dialog";
 
 #[derive(Clone, Copy)]

@@ -4,7 +4,7 @@ use crate::{
     focus_trap::FocusTrapManager,
     input::InputState,
     notification::{Notification, NotificationList},
-    sheet::{Sheet, SheetAnimationPhase, SHEET_ANIMATION_DURATION},
+    sheet::{SHEET_ANIMATION_DURATION, Sheet, SheetAnimationPhase},
     window_border,
 };
 use gpui::{
@@ -12,11 +12,7 @@ use gpui::{
     IntoElement, KeyBinding, ParentElement as _, Pixels, Render, StyleRefinement, Styled,
     WeakFocusHandle, Window, actions, div, prelude::FluentBuilder as _,
 };
-use std::{
-    any::TypeId,
-    rc::Rc,
-    time::Instant,
-};
+use std::{any::TypeId, rc::Rc, time::Instant};
 
 actions!(root, [Tab, TabPrev]);
 
@@ -281,7 +277,10 @@ impl Root {
     }
 
     fn finish_close_dialog(&mut self, dialog_id: usize) -> Option<FocusHandle> {
-        let dialog_ix = self.active_dialogs.iter().position(|dialog| dialog.id == dialog_id)?;
+        let dialog_ix = self
+            .active_dialogs
+            .iter()
+            .position(|dialog| dialog.id == dialog_id)?;
         self.active_dialogs
             .remove(dialog_ix)
             .previous_focused_handle
@@ -314,7 +313,10 @@ impl Root {
             cx.background_executor().timer(*ANIMATION_DURATION).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 let removed_focus_handle = this.finish_close_dialog(dialog_id);
-                let has_newer_dialog = this.active_dialogs.iter().any(|dialog| dialog.id > dialog_id);
+                let has_newer_dialog = this
+                    .active_dialogs
+                    .iter()
+                    .any(|dialog| dialog.id > dialog_id);
 
                 if !has_newer_dialog {
                     if let Some(handle) = removed_focus_handle {
