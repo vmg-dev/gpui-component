@@ -28,7 +28,7 @@ gpui-component-macros = { path = "crates/macros", version = "0.5.1" }
 gpui-component-assets = { path = "crates/assets", version = "0.5.1" }
 story = { path = "crates/story" }
 
-gpui = { package = "gpui-ce", git = "https://github.com/vmg-dev/gpui-ce", rev = "de080b0773f832eaa011740d62e0840cca0203ba", features = ["runtime_shaders"] }
+gpui = { package = "gpui-ce", git = "https://github.com/vmg-dev/gpui-ce", rev = "4094809dba8bd86e1507aef749d95caf3f8a16de", features = ["runtime_shaders"] }
 gpui_macros = { version = "0.2.2", package = "gpui-macros" }
 sum-tree = { version = "0.2.2", package = "gpui_sum_tree" }
 # reqwest = { version = "0.12.15-zed", package = "zed-reqwest" }
